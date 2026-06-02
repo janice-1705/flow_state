@@ -37,6 +37,7 @@ class FlowStateApp extends StatelessWidget {
             //sets button text to white by default
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            elevation: 0,
           ),
         ),
         
