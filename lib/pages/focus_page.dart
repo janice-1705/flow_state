@@ -1,4 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
+import 'library_page.dart';
 
 // define 4 distinct visual states
 
@@ -12,6 +15,16 @@ class FocusPage extends StatefulWidget {
 }
 
 class _FocusPageState extends State<FocusPage> {
+
+  // the software tracking controller
+  final TextEditingController _focusTextController = TextEditingController();
+
+  // for memory cleanup
+  @override
+  void dispose() {
+    _focusTextController.dispose();
+    super.dispose();
+  }
 
   // the user starts on the "setup" view panel
 
@@ -126,10 +139,19 @@ class _FocusPageState extends State<FocusPage> {
             
           ),
           
-          child: Center(
-            child: Text(
-              'type here...',
-              style: TextStyle(color: Colors.grey),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(
+              child: TextField(
+                controller: _focusTextController,
+                style: const TextStyle(color: Colors.black87),
+                maxLines: 1,
+                decoration: const InputDecoration(
+                  hintText: 'type here...',
+                  hintStyle: TextStyle(color: Colors.grey),
+                  border: InputBorder.none,
+                ),
+              ),
             ),
           ),
 
@@ -143,7 +165,40 @@ class _FocusPageState extends State<FocusPage> {
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           ),
-          onPressed: () {
+          onPressed: () async {
+
+            // safety check to make sure user didn't submit an empty response accidently
+
+            if (_focusTextController.text.trim().isEmpty){
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Type out your session context first!')),
+              );
+              return;
+            }
+
+            try{
+              //package and ship the data to firebase notes folder
+              await FirebaseFirestore.instance.collection('notes').add({
+                'title': 'Focus Session Log', // AI gen titles will go here later
+                'summary': _focusTextController.text.trim(), // captures the input text
+                'type': 'Text',
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+
+              // clear out field box for their next session
+              _focusTextController.clear();
+
+              // success alert
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Session log successfully synced to Library!')),
+              );
+
+            }catch(error){
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Cloud sync failed: $error')),
+              );
+            }
+
             setState(() {
               _currentState = FocusModeState.active;
             });
@@ -165,6 +220,7 @@ class _FocusPageState extends State<FocusPage> {
           'Focus mode\nis on!',
           textAlign: TextAlign.center,
           style: TextStyle(
+            fontSize: 40,
             fontWeight: FontWeight.bold,
             color: Color(0xFF4495A7), //teal
             height: 1.1,
@@ -264,8 +320,10 @@ class _FocusPageState extends State<FocusPage> {
             _buildActionCapsule('Go to\nHome', () => Navigator.pop(context)),
             const SizedBox(width: 24),
             _buildActionCapsule('Go to\nLibrary', () {
-              //will map cross-navigation routing here later
-              print('Routing to Library...');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const LibraryPage()),
+              );
             }),
           ],
         ),
@@ -291,19 +349,20 @@ class _FocusPageState extends State<FocusPage> {
           ),
         ),
 
-        // positioning of Ozo
+        // positioning of Ozo's speech box
         Positioned(
-          top: -60,
-          right: -80,
+          bottom: 150,
+          left: 85,
           child: Container(
+            constraints: const BoxConstraints(maxWidth: 180),
             padding: const EdgeInsets.all(12),
             decoration: const BoxDecoration(
               color: Color(0xFFDCDCDC),
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
-                bottomLeft: Radius.circular(16),
-                bottomRight: Radius.circular(0),
+                bottomLeft: Radius.circular(0),
+                bottomRight: Radius.circular(16),
               ),
             ),
 

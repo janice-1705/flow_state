@@ -1,3 +1,15 @@
+// 💡 ADDED THIS BUILDSCRIPT BLOCK: Downloads the Google Services plugin to the global classpath
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.google.gms:google-services:4.4.1")
+    }
+}
+
 allprojects {
     repositories {
         google()

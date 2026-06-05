@@ -1,7 +1,14 @@
 import 'package:flow_state/pages/home_page.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+void main() async{
+  // tells flutter to ensure all background hardware communication protocols are ready before executing any native initialization hooks
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // fires up the connection using the google-services.json coordinates
+  await Firebase.initializeApp();
+
   runApp(const FlowStateApp());
 }
 

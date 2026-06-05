@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'library_page.dart';
 import 'focus_page.dart';
+import 'input_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -46,7 +47,7 @@ class _HomePageState extends State<HomePage> {
               _buildMenuButton(
                 label: 'Use Camera',
                 icon: Icons.camera_alt_outlined,
-                onTap: () => _handleOptionSelected(),
+                onTap: () => _handleOptionSelected('Camera'),
               ),
 
               const SizedBox(height: 16),
@@ -55,7 +56,7 @@ class _HomePageState extends State<HomePage> {
               _buildMenuButton(
                 label: 'Type your thoughts',
                 icon: Icons.edit_note_outlined,
-                onTap: () => _handleOptionSelected(),
+                onTap: () => _handleOptionSelected('Text'),
               ),
 
               const SizedBox(height: 16),
@@ -64,7 +65,7 @@ class _HomePageState extends State<HomePage> {
               _buildMenuButton(
                 label: 'Record your voice',
                 icon: Icons.mic_none_outlined,
-                onTap: () => _handleOptionSelected(),
+                onTap: () => _handleOptionSelected('Voice'),
               ),
             ],
           ),
@@ -121,11 +122,14 @@ class _HomePageState extends State<HomePage> {
 
 
   //function to handle option selection in sliding window
-  void _handleOptionSelected(){
+  void _handleOptionSelected(String captureType){
     Navigator.pop(context); // closes the sliding bottom sheet menu
-    setState(() {
-      _isProcessing = true; // triggers flutter to redraw the screen with the loading view
-    });
+    Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => InputPage(inputType: captureType),
+    ),
+  );
   }
 
   @override
@@ -198,7 +202,7 @@ class _HomePageState extends State<HomePage> {
 
                   _buildDrawerLink(
                     label: 'Settings',
-                    onTap: () => print("Sign in tapped"),
+                    onTap: () => print("Settings tapped"),
                   ),
 
                   const SizedBox(height: 32),
