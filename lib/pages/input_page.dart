@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'library_page.dart';
+import 'dart:io'; // Needed to handle image file paths
+import 'package:camera/camera.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 class InputPage extends StatefulWidget {
   final String inputType; // 'Text', 'Voice', or 'Camera'
@@ -17,9 +19,97 @@ class _InputPageState extends State<InputPage> {
   bool _isRecording = false; 
   String _audioTranscriptPlaceholder = "Your live speech transcription will materialize here after recording...";
 
+  //camera hardware tracking variables
+  CameraController? _cameraController;
+  List<CameraDescription>? _cameras;
+  bool _isCameraInitialized = false;
+  File? _capturedImageFile; // holds the final, cropped image file
+
+  @override
+  void initState(){
+    super.initState();
+    // to get the camera started as soon as the user taps the camera option
+    if(widget.inputType == 'Camera'){
+      _initializeCameraSystem();
+    }
+  }
+
+  Future<void> _initializeCameraSystem() async {
+    try{
+      // to fetch the physical list of available lenses on the device
+      _cameras = await availableCameras();
+
+      if (_cameras != null && _cameras!.isNotEmpty){
+        // setup the controller to use the main rear camera with high resolution
+        _cameraController = CameraController(
+          _cameras![0], // Default back-facing camera lens
+          ResolutionPreset.high,
+          enableAudio: false, // don't need microphone access
+        );
+
+        // to complete the physical hardware connection 
+        await _cameraController!.initialize();
+
+        if (mounted) {
+          setState(() {
+            _isCameraInitialized = true;
+          });
+        }
+      }
+    }catch(e){
+      print("Camera hardware initialization failure: $e");
+    }
+  }
+
+  // Action A: Freezes the lens array matrix frame stream and writes file data to cache
+  Future<void> _snapPhotoCaptureAction() async {
+    if (!_isCameraInitialized || _cameraController == null || _cameraController!.value.isTakingPicture) {
+      return;
+    }
+
+    try {
+      final XFile rawPhotoFile = await _cameraController!.takePicture();
+      // Instantly push this captured string file target into the native image cropper system
+      await _cropImageAction(rawPhotoFile.path);
+    } catch (e) {
+      print("Error executing image freeze capture frame: $e");
+    }
+  }
+
+  // Action B: Launches native phone UI layout box to let users crop, scale, and align their document
+  Future<void> _cropImageAction(String rawFilePath) async {
+    try {
+      final CroppedFile? croppedDataFile = await ImageCropper().cropImage(
+        sourcePath: rawFilePath,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Align & Crop Document',
+            toolbarColor: const Color(0xFF4495A7),
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(
+            title: 'Align & Crop Document',
+            aspectRatioLockEnabled: false,
+          ),
+        ],
+      );
+
+      if (croppedDataFile != null) {
+        setState(() {
+          _capturedImageFile = File(croppedDataFile.path); // Freezes cropped path into state preview display!
+        });
+      }
+    } catch (e) {
+      print("Image cropper compilation exception instance: $e");
+    }
+  }
+
   @override
   void dispose() {
     _textController.dispose();
+    _cameraController?.dispose(); // turn off physical lens sensor to save battery
     super.dispose();
   }
 
@@ -138,28 +228,98 @@ class _InputPageState extends State<InputPage> {
             decoration: BoxDecoration(
               color: const  Color(0xFFDCDCDC),
               borderRadius: BorderRadius.circular(16),
-              // 💡 FIX: Swapped .withValues to universally safe .withOpacity
               border: Border.all(color: const Color(0xFF4495A7).withValues(alpha: 0.3)),
             ),
-            child: const Center(
-              child: Icon(Icons.camera_alt_outlined, size: 64, color: Color(0xFF4495A7)),
-            ),
+            clipBehavior: Clip.antiAlias, // keeps the live camera edges rounded inside the card
+            child: _buildCameraViewportSelector(),
           ),
         ),
         const SizedBox(height: 20),
         
+        // options control row (only active if an image has been snapped)
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildEditToolButton(Icons.crop, 'Crop', () => print('Trigger native cropper overlay...')),
-            _buildEditToolButton(Icons.edit_note, 'Annotate', () => print('Open sketch board overlay...')),
-            _buildEditToolButton(Icons.rotate_right, 'Rotate', () => print('Rotate image matrix...')),
+            _buildEditToolButton(
+              Icons.crop, 
+              'Crop', 
+              _capturedImageFile == null ? null : () => _cropImageAction(_capturedImageFile!.path)
+            ),
+            _buildEditToolButton(
+              Icons.refresh_rounded, 
+              'Retake', 
+              _capturedImageFile == null ? null : () {
+                setState(() => _capturedImageFile = null); // Wipes file and wakes back up live lens feed
+              }
+            ),
+            _buildEditToolButton(
+              Icons.edit_note, 
+              'Annotate', 
+              () => print('Open sketch board overlay...')
+            ),
+            _buildEditToolButton(
+              Icons.rotate_right, 
+              'Rotate', 
+              () => print('Rotate image matrix...')
+            ),
           ],
         ),
         const SizedBox(height: 24),
         _buildSyncButton(() {
-          print('Processing image elements...');
+          if (_capturedImageFile == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Please snap a photo capture frame first!')),
+            );
+            return;
+          }
+          print('Shipping image document forward to backend pipeline: ${_capturedImageFile!.path}');
         }),
+      ],
+    );
+  }
+
+  // to switch between live view and review
+
+  Widget _buildCameraViewportSelector() {
+    // Mode A: User has already snapped and cropped their file context image
+    if (_capturedImageFile != null) {
+      return Image.file(_capturedImageFile!, fit: BoxFit.contain);
+    }
+
+    // Mode B: Hardware is still spinning up, show a clean loading indicator wheel
+    if (!_isCameraInitialized || _cameraController == null) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF4495A7)));
+    }
+
+    // Mode C: Lens is completely ready, overlay a shutter action trigger onto the live screen feed Matrix!
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CameraPreview(_cameraController!),
+        
+        // Immersive overlay translucent frame shutter action key node
+        Positioned(
+          bottom: 24,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: GestureDetector(
+              onTap: _snapPhotoCaptureAction,
+              child: Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.2),
+                  border: Border.all(color: Colors.white, width: 4),
+                ),
+                child: const Center(
+                  child: Icon(Icons.camera, color: Colors.white, size: 32),
+                ),
+              ),
+            ),
+          ),
+        )
       ],
     );
   }
@@ -237,7 +397,7 @@ class _InputPageState extends State<InputPage> {
     );
   }
 
-  Widget _buildEditToolButton(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildEditToolButton(IconData icon, String label, VoidCallback? onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
