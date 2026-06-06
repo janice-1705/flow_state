@@ -3,6 +3,8 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'dart:math';
 import 'focus_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -24,40 +26,6 @@ class _LibraryPageState extends State<LibraryPage> {
     const Color(0xFF70B2C1), // Deep soft teal
     const Color(0xFFEBFFEE), // soft mint accent
     const Color(0xFFD4F2F7), // Icy sky blue accent
-  ];
-
-  // mock data representing notes with varying summary lengths to show dynamic adjustment
-  final List<Map<String, dynamic>> _notes = [
-    {
-    'title': 'SaaS Hook Ideas',
-    'summary': 'A collection of high-converting hooks for the new dashboard product launch campaign.',
-    'color': const Color(0xFFBBE5ED),
-    'hasImage': true,
-    },
-    {
-      'title': 'Voice Note Log',
-      'summary': 'Audio brainstorming session about the app onboarding flow redesign.',
-      'color': const Color(0xFF90C2CE),
-      'hasAudio': true,
-    },
-    {
-      'title': 'App Layout Spec',
-      'summary': 'Short structural doc.',
-      'color': const Color(0xFF70B2C1),
-      'hasImage': false,
-    },
-    {
-      'title': 'Marketing Strategy',
-      'summary': 'Detailed notes covering our target distribution channels and D2C ad budget allocations for Q3.',
-      'color': const Color(0xFFBBE5ED),
-      'hasImage': true,
-    },
-    {
-      'title': 'Design Checklist',
-      'summary': 'Review typography pairings and line-height values before exporting assets.',
-      'color': const Color(0xFF90C2CE),
-      'hasAudio': true,
-    },
   ];
 
   final List<String> _topics = ['All', 'SaaS Work', 'Personal Tech', 'Design Copy', 'Audio Snippets'];
@@ -244,6 +212,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final Color assignedColor = _brandPalette[index % _brandPalette.length];
 
+    // Read the explicit type indicator field coming straight from the Firestore document string entry
+    final String noteType = note['type'] ?? 'Text';
+
     return Container(
       decoration: BoxDecoration(
         color: assignedColor,
@@ -259,7 +230,7 @@ class _LibraryPageState extends State<LibraryPage> {
             children: [
               Expanded(
                 child: Text(
-                  note['title'],
+                  note['title'] ?? 'Untitled Note',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF225B66)),
                 ),
               ),
@@ -273,28 +244,58 @@ class _LibraryPageState extends State<LibraryPage> {
 
           // Custom thumbnail/img icon space
 
-          if(note['hasImage'] == true)
+          // --- 📸 REAL LIVE IMAGE DECODING RENDER BLOCK ---
+          if (noteType == 'Camera' && note['imageData'] != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
-              child: Container(
-                height: 70,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(12),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: double.infinity,
+                  color: Colors.white.withValues(alpha: 0.2),
+                  child: Builder(
+                    builder: (context) {
+                      try {
+                        // ⚡ Decodes the image base64 text string back into structural image bytes
+                        final Uint8List decodedBytes = base64Decode(note['imageData']);
+                        return Image.memory(
+                          decodedBytes,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const SizedBox(
+                              height: 70,
+                              child: Center(child: Icon(Icons.broken_image, color: Color(0xFF225B66))),
+                            );
+                          },
+                        );
+                      } catch (e) {
+                        return const SizedBox(
+                          height: 70,
+                          child: Center(child: Icon(Icons.error_outline, color: Colors.red)),
+                        );
+                      }
+                    },
+                  ),
                 ),
-                child: const Icon(Icons.image_outlined, color: Color(0xFF225B66), size: 28),
               ),
             ),
 
-            if (note['hasAudio'] == true)
+            // --- 🎙️ VOICE NOTE RENDER BLOCK ---
+          if (noteType == 'Voice')
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
               child: Row(
                 children: [
                   const Icon(Icons.mic_rounded, color: Color(0xFF225B66), size: 20),
                   const SizedBox(width: 6),
-                  Text('Audio file', style: TextStyle(color: const Color(0xFF225B66).withValues(alpha: 0.8), fontSize: 12)),
+                  Text(
+                    'Audio file', 
+                    style: TextStyle(
+                      // 💡 FIX: Replaced .withValues(alpha: 0.8) with .withOpacity(0.8)
+                      color: const Color(0xFF225B66).withValues(alpha:0.8), 
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
             ),

@@ -4,6 +4,7 @@ import 'library_page.dart';
 import 'dart:io'; // Needed to handle image file paths
 import 'package:camera/camera.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'dart:convert';
 
 class InputPage extends StatefulWidget {
   final String inputType; // 'Text', 'Voice', or 'Camera'
@@ -252,27 +253,47 @@ class _InputPageState extends State<InputPage> {
                 setState(() => _capturedImageFile = null); // Wipes file and wakes back up live lens feed
               }
             ),
-            _buildEditToolButton(
-              Icons.edit_note, 
-              'Annotate', 
-              () => print('Open sketch board overlay...')
-            ),
-            _buildEditToolButton(
-              Icons.rotate_right, 
-              'Rotate', 
-              () => print('Rotate image matrix...')
-            ),
           ],
         ),
         const SizedBox(height: 24),
-        _buildSyncButton(() {
+        _buildSyncButton(() async{
           if (_capturedImageFile == null) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Please snap a photo capture frame first!')),
             );
             return;
           }
-          print('Shipping image document forward to backend pipeline: ${_capturedImageFile!.path}');
+
+          try{
+            // convert image file bytes into a text string
+            final List<int> imageBytes = await _capturedImageFile!.readAsBytes();
+            final String base64ImageString = base64Encode(imageBytes);
+
+            // opens a direct pipeline to the firestore notes library collection
+            await FirebaseFirestore.instance.collection('notes').add({
+              'title': 'Camera Capture Log', // Ozo will auto-generate titles here later
+              'summary': 'Visual document scan saved to vault.',
+              'imageData': base64ImageString, // this is the image inside the database as text
+              'type': 'Camera', // tells the library grid to draw an image card layout
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+
+            //success alert msg
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image successfully synced to your Library!')),
+            );
+
+            // send the user to the library page to see their new img card
+            Navigator.pushReplacement(
+              context, 
+              MaterialPageRoute(builder: (context) => const LibraryPage()),
+            );
+          }catch(error){
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cloud image sync failed: $error')),
+            );
+
+          }
         }),
       ],
     );
