@@ -5,6 +5,7 @@ import 'focus_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:audioplayers/audioplayers.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -29,6 +30,52 @@ class _LibraryPageState extends State<LibraryPage> {
   ];
 
   final List<String> _topics = ['All', 'SaaS Work', 'Personal Tech', 'Design Copy', 'Audio Snippets'];
+
+  // audio tracking controller instances
+  final AudioPlayer _globalAudioPlayer = AudioPlayer();
+  String? _currentlyPlayingPath;
+
+  @override
+  void initState(){
+    super.initState();
+
+    //listen for when audio finishes naturally to resent UI states automatically
+    _globalAudioPlayer.onPlayerComplete.listen((event){
+      setState(() {
+        _currentlyPlayingPath = null;
+      });
+    });
+  }
+
+  @override
+  void dispose(){
+    _globalAudioPlayer.dispose(); // to free hardware pins when leaving page
+    super.dispose();
+  }
+
+  // unified playback router logic loop
+  Future<void> _handleAudioPlayback(String audioPath) async{
+    try{
+      //toggle play/pause if clicking the same file that's running
+      if(_currentlyPlayingPath == audioPath){
+        await _globalAudioPlayer.pause();
+        setState(() {
+          _currentlyPlayingPath = null;
+        });
+      }
+
+      // Switch tracks or set up fresh track execution pipeline
+      else{
+        await _globalAudioPlayer.stop(); // stop anything else currently playing
+        await _globalAudioPlayer.play(DeviceFileSource(audioPath));
+        setState(() {
+          _currentlyPlayingPath = audioPath;
+        });
+      }
+    }catch(e){
+      print("Global audio hardware processing error: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -244,7 +291,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
           // Custom thumbnail/img icon space
 
-          // --- 📸 REAL LIVE IMAGE DECODING RENDER BLOCK ---
+          // REAL LIVE IMAGE DECODING RENDER BLOCK
           if (noteType == 'Camera' && note['imageData'] != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
@@ -280,30 +327,61 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
             ),
 
-            // --- 🎙️ VOICE NOTE RENDER BLOCK ---
+          // interactive voice note playback block
           if (noteType == 'Voice')
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
-              child: Row(
-                children: [
-                  const Icon(Icons.mic_rounded, color: Color(0xFF225B66), size: 20),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Audio file', 
-                    style: TextStyle(
-                      // 💡 FIX: Replaced .withValues(alpha: 0.8) with .withOpacity(0.8)
-                      color: const Color(0xFF225B66).withValues(alpha:0.8), 
-                      fontSize: 12,
+              child: InkWell(
+                onTap: () {
+                  final String? targetAudioPath = note['audioPath'];
+                  if (targetAudioPath != null && targetAudioPath.isNotEmpty){
+                    _handleAudioPlayback(targetAudioPath);
+                  }else{
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Audio location file path is corrupted or missing!')),
+                    );
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    // toggle play/pause graphics live by computing identity states
+                    Icon(
+                      _currentlyPlayingPath == note['audioPath'] && _currentlyPlayingPath != null
+                      ? Icons. pause_circle_filled_rounded
+                      : Icons.play_circle_fill_rounded,
+                      color: const Color(0xFF225B66),
+                      size: 26,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _currentlyPlayingPath == note['audioPath'] && _currentlyPlayingPath !=null
+                          ? 'Playing...'
+                          : 'Play Clip',
+                        style: const TextStyle(
+                          color: Color(0xFF225B66), 
+                          fontSize: 13, 
+                          fontWeight: FontWeight.bold
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+          ),
 
             // Dynamic text-box -> auto summary block
             Text(
-            note['summary'],
-            style: const TextStyle(fontSize: 13, color: Color(0xFF225B66), height: 1.3),
+              note['summary'],
+              style: const TextStyle(fontSize: 13, color: Color(0xFF225B66), height: 1.3),
           ),
         ],
       ),

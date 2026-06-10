@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'library_page.dart';
-import 'dart:io'; // Needed to handle image file paths
+import 'dart:io'; // Needed to handle image and audio file paths
 import 'package:camera/camera.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'dart:convert';
+import 'package:record/record.dart'; // to access physical microphone streams
+import 'package:path_provider/path_provider.dart'; // finds safe directory folders on device
+
 
 class InputPage extends StatefulWidget {
   final String inputType; // 'Text', 'Voice', or 'Camera'
@@ -20,6 +23,9 @@ class _InputPageState extends State<InputPage> {
   bool _isRecording = false; 
   String _audioTranscriptPlaceholder = "Your live speech transcription will materialize here after recording...";
 
+  late final AudioRecorder _audioRecorder;
+  String? _localAudioPath;
+
   //camera hardware tracking variables
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
@@ -29,6 +35,9 @@ class _InputPageState extends State<InputPage> {
   @override
   void initState(){
     super.initState();
+
+    // to initialize the AudioRecorder instance on startup
+    _audioRecorder = AudioRecorder();
     // to get the camera started as soon as the user taps the camera option
     if(widget.inputType == 'Camera'){
       _initializeCameraSystem();
@@ -61,6 +70,53 @@ class _InputPageState extends State<InputPage> {
       print("Camera hardware initialization failure: $e");
     }
   }
+
+  // -- Audio Recorder Methods --
+
+  // action A - Verifies platform privileges, spins up sensor array, and hooks stream to temp directory
+
+  Future<void> _startRecordingAudio() async{
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final Directory tempDir = await getTemporaryDirectory();
+        final String filePath = '${tempDir.path}/flow_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        // Initialize microphone hardware recording channel
+        await _audioRecorder.start(
+          const RecordConfig(encoder: AudioEncoder.aacLc), 
+          path: filePath
+        );
+
+        setState(() {
+          _isRecording = true;
+          _localAudioPath = filePath;
+          _audioTranscriptPlaceholder = "Listening intently to your voice stream... Tap stop to seal note.";
+        });
+        print("Recording hardware active. Streaming to: $filePath");
+      }
+    } catch (e) {
+      print("Microphone sensor connection failure: $e");
+    }
+  }
+
+  // action B: Cuts power to input pin, flushes data to memory, and displays validation state
+
+  Future<void> _stopRecordingAudio() async {
+    try {
+      final String? path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _localAudioPath = path;
+        _audioTranscriptPlaceholder = "Voice note recorded successfully! [Stored at: ...${path?.split('/').last}]\n\nReady to sync data to your cloud vault library.";
+      });
+      print("Audio file capture locked locally at: $_localAudioPath");
+    } catch (e) {
+      print("Error shutting down audio session safely: $e");
+    }
+  }
+
+
+  // --- Camera Pipeline methods -----
 
   // Action A: Freezes the lens array matrix frame stream and writes file data to cache
   Future<void> _snapPhotoCaptureAction() async {
@@ -111,6 +167,7 @@ class _InputPageState extends State<InputPage> {
   void dispose() {
     _textController.dispose();
     _cameraController?.dispose(); // turn off physical lens sensor to save battery
+    _audioRecorder.dispose(); // close background stream channels to prevent memory leaks
     super.dispose();
   }
 
@@ -352,7 +409,7 @@ class _InputPageState extends State<InputPage> {
       children: [
         const Spacer(),
         GestureDetector(
-          onTap: () => setState(() => _isRecording = !_isRecording),
+          onTap: _isRecording ? _stopRecordingAudio : _startRecordingAudio,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             width: 100,
@@ -394,8 +451,44 @@ class _InputPageState extends State<InputPage> {
           ),
         ),
         const SizedBox(height: 24),
-        _buildSyncButton(() {
-          print('Processing audio transcript pipeline...');
+        _buildSyncButton(() async{
+          // gaurd criteria: ensures a real asset path exists in memory cache
+          if (_localAudioPath == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Please record a voice audio snippet first!')),
+            );
+            return;
+          }
+
+          try {
+            // ⚡ HACKATHON MVP TRANSCRIPT BYPASS: Log metadata details directly as content strings
+            final String mockTranscript = "Audio note logged successfully. Asset tracking signature identifier: flow_voice_${_localAudioPath!.split('_').last}";
+
+            await FirebaseFirestore.instance.collection('notes').add({
+              'title': 'Voice Note Log',
+              'summary': mockTranscript,
+              'audioPath': _localAudioPath, 
+              'type': 'Voice',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+
+            if (!mounted) return;
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Voice log synced to your Library!')),
+            );
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const LibraryPage()),
+            );
+          } catch (error) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cloud voice sync failed: $error')),
+            );
+          }
+
         }),
       ],
     );
