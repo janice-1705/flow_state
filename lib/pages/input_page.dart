@@ -7,6 +7,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'dart:convert';
 import 'package:record/record.dart'; // to access physical microphone streams
 import 'package:path_provider/path_provider.dart'; // finds safe directory folders on device
+import 'package:flow_state/services/ozo_service.dart'; // 💡 Adjust path if your project folder name is different
 
 
 class InputPage extends StatefulWidget {
@@ -233,8 +234,9 @@ class _InputPageState extends State<InputPage> {
         ),
         const SizedBox(height: 24),
         _buildSyncButton(() async{
+          final String rawThoughts = _textController.text.trim();
           // to prevent users from saving blank notes
-          if (_textController.text.trim().isEmpty){
+          if (rawThoughts.isEmpty){
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Please write out your thoughts before syncing!')),
             );
@@ -242,10 +244,24 @@ class _InputPageState extends State<InputPage> {
           }
 
           try{
+            // to show a loading msg so that the user knows Ozo is thinking
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ozo is organizing your thoughts...'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+            // pass raw data to ozo
+            final Map<String, dynamic> ozoResult = await OzoService.processBrainDump(rawThoughts);
+
+            // extract the structured JSON layers Ozo generated
+            final String aiTitle = ozoResult['title'] ?? 'Text Capture Log';
+            final String aiSummary = ozoResult['summary'] ?? rawThoughts;
+
             // open a direct link to the cloud 'notes' folder
             await FirebaseFirestore.instance.collection('notes').add({
-              'title': 'Text Capture Log', // Ozo will auto-generate titles here later
-              'summary': _textController.text.trim(), // sends your exact input
+              'title': aiTitle, // AI generated title
+              'summary': aiSummary, // AI generated summary
               'type': 'Text', // this tells the library page to draw it as a text-style card
               'createdAt': FieldValue.serverTimestamp(), // Exact server-side sync time
             }); 
@@ -322,34 +338,35 @@ class _InputPageState extends State<InputPage> {
           }
 
           try{
-            // convert image file bytes into a text string
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Ozo is analyzing your document image...'), duration: Duration(seconds: 2)),
+            );
+
+            // Convert image file bytes into a text string
             final List<int> imageBytes = await _capturedImageFile!.readAsBytes();
             final String base64ImageString = base64Encode(imageBytes);
 
-            // opens a direct pipeline to the firestore notes library collection
+            // TALK TO OZO VISION: Let Gemini process the document image!
+            final Map<String, dynamic> ozoResult = await OzoService.processImageCapture(base64ImageString);
+
+            // Opens a direct pipeline to the firestore notes library collection
             await FirebaseFirestore.instance.collection('notes').add({
-              'title': 'Camera Capture Log', // Ozo will auto-generate titles here later
-              'summary': 'Visual document scan saved to vault.',
-              'imageData': base64ImageString, // this is the image inside the database as text
-              'type': 'Camera', // tells the library grid to draw an image card layout
+              'title': ozoResult['title'] ?? 'Camera Capture Log', // ⚡ AI Generated!
+              'summary': ozoResult['summary'] ?? 'Visual document scan saved.', // ⚡ AI Generated!
+              'imageData': base64ImageString, 
+              'type': 'Camera', 
               'createdAt': FieldValue.serverTimestamp(),
             });
 
-            //success alert msg
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Image successfully synced to your Library!')),
-            );
-
-            // send the user to the library page to see their new img card
-            Navigator.pushReplacement(
-              context, 
-              MaterialPageRoute(builder: (context) => const LibraryPage()),
-            );
+            if (!mounted) return;
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LibraryPage()));
           }catch(error){
+            if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Cloud image sync failed: $error')),
+              SnackBar(
+                content: Text('Ozo image sync failed: $error'),
+              ),
             );
-
           }
         }),
       ],
@@ -461,34 +478,30 @@ class _InputPageState extends State<InputPage> {
           }
 
           try {
-            // ⚡ HACKATHON MVP TRANSCRIPT BYPASS: Log metadata details directly as content strings
-            final String mockTranscript = "Audio note logged successfully. Asset tracking signature identifier: flow_voice_${_localAudioPath!.split('_').last}";
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Ozo is organizing your audio data...'), duration: Duration(seconds: 2)),
+            );
+
+            // Create your base context identifier string
+            final String rawVoiceDataText = "Audio recording log file sitting locally at: $_localAudioPath. Extract a creative layout summary from this action signature.";
+
+            // 🧠 TALK TO OZO: Let Gemini process the audio signature context!
+            final Map<String, dynamic> ozoResult = await OzoService.processBrainDump(rawVoiceDataText);
 
             await FirebaseFirestore.instance.collection('notes').add({
-              'title': 'Voice Note Log',
-              'summary': mockTranscript,
+              'title': ozoResult['title'] ?? 'Voice Note Log', // ⚡ AI Generated!
+              'summary': ozoResult['summary'] ?? rawVoiceDataText, // ⚡ AI Generated!
               'audioPath': _localAudioPath, 
               'type': 'Voice',
               'createdAt': FieldValue.serverTimestamp(),
             });
 
             if (!mounted) return;
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Voice log synced to your Library!')),
-            );
-
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const LibraryPage()),
-            );
-          } catch (error) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LibraryPage()));
+          } catch (e) {
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Cloud voice sync failed: $error')),
-            );
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ozo voice sync failed: $e')));
           }
-
         }),
       ],
     );
